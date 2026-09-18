@@ -1,0 +1,46 @@
+# Bootstrap route/backend definitions loaded by apps/gateway/bootstrap.py
+# until Phase 9 (Postgres-backed config cache) replaces this file.
+#
+# This wires the gateway to the three demo-services (Section 48) so the
+# whole pipeline is exercisable end-to-end: client -> Sentinel -> backend.
+
+backend_services:
+  - id: users-service
+    instances:
+      - { id: users-1, host: demo-users, port: 9001, weight: 1 }
+
+  - id: payments-service
+    instances:
+      - { id: payments-1, host: demo-payments, port: 9002, weight: 1 }
+
+  - id: notifications-service
+    instances:
+      - { id: notifications-1, host: demo-notifications, port: 9003, weight: 1 }
+
+routes:
+  - id: route-users
+    tenant_id: default
+    name: users
+    path_pattern: "/users/*"
+    http_methods: [GET, POST]
+    backend_service_id: users-service
+    timeout_ms: 2000
+    priority: HIGH
+
+  - id: route-payments
+    tenant_id: default
+    name: payments
+    path_pattern: "/payments/*"
+    http_methods: [GET, POST]
+    backend_service_id: payments-service
+    timeout_ms: 2000
+    priority: HIGH
+
+  - id: route-notifications
+    tenant_id: default
+    name: notifications
+    path_pattern: "/notifications/*"
+    http_methods: [GET, POST]
+    backend_service_id: notifications-service
+    timeout_ms: 3000
+    priority: LOW

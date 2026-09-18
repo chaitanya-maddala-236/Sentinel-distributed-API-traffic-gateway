@@ -1,0 +1,129 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sentinel
+      POSTGRES_PASSWORD: sentinel
+      POSTGRES_DB: sentinel
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sentinel"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  demo-users:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.demo
+      args: { SERVICE_DIR: demo-services/users }
+    environment:
+      PORT: "9001"
+    ports: ["9001:9001"]
+
+  demo-payments:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.demo
+      args: { SERVICE_DIR: demo-services/payments }
+    environment:
+      PORT: "9002"
+    ports: ["9002:9002"]
+
+  demo-notifications:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.demo
+      args: { SERVICE_DIR: demo-services/notifications }
+    environment:
+      PORT: "9003"
+    ports: ["9003:9003"]
+
+  control-plane:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.control-plane
+    environment:
+      SENTINEL_POSTGRES_DSN: postgresql+asyncpg://sentinel:sentinel@postgres:5432/sentinel
+      SENTINEL_REDIS_URL: redis://redis:6379/0
+    ports: ["8001:8001"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  gateway-1:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.gateway
+    environment:
+      SENTINEL_INSTANCE_ID: gateway-1
+      SENTINEL_REDIS_URL: redis://redis:6379/0
+      SENTINEL_POSTGRES_DSN: postgresql+asyncpg://sentinel:sentinel@postgres:5432/sentinel
+    ports: ["8000:8000"]
+    depends_on:
+      redis: { condition: service_healthy }
+      demo-users: { condition: service_started }
+      demo-payments: { condition: service_started }
+      demo-notifications: { condition: service_started }
+
+  gateway-2:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.gateway
+    environment:
+      SENTINEL_INSTANCE_ID: gateway-2
+      SENTINEL_REDIS_URL: redis://redis:6379/0
+      SENTINEL_POSTGRES_DSN: postgresql+asyncpg://sentinel:sentinel@postgres:5432/sentinel
+    ports: ["8010:8000"]
+    depends_on:
+      redis: { condition: service_healthy }
+      demo-users: { condition: service_started }
+      demo-payments: { condition: service_started }
+      demo-notifications: { condition: service_started }
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports: ["80:80"]
+    depends_on: [gateway-1, gateway-2]
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+    depends_on: [gateway-1, gateway-2]
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: sentinel
+    ports: ["3001:3000"]
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on: [prometheus]
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../infra/docker/Dockerfile.frontend
+    ports: ["3000:80"]
+    depends_on: [control-plane, nginx]
+
+volumes:
+  pgdata:
+  grafana-data:

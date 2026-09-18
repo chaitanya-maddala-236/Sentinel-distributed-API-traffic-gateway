@@ -1,0 +1,14 @@
+FROM python:3.12-slim AS base
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1 PYTHONPATH=/app
+COPY pyproject.toml /app/pyproject.toml
+RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || pip install --no-cache-dir \
+    fastapi uvicorn[standard] starlette httpx pydantic pydantic-settings \
+    sqlalchemy asyncpg redis prometheus-client structlog orjson pyyaml \
+    opentelemetry-api opentelemetry-sdk opentelemetry-instrumentation-fastapi
+COPY apps/gateway /app/apps/gateway
+COPY apps/__init__.py /app/apps/__init__.py
+COPY packages /app/packages
+COPY infra/docker/routes.yaml /app/infra/docker/routes.yaml
+EXPOSE 8000
+CMD ["uvicorn", "apps.gateway.main:app", "--host", "0.0.0.0", "--port", "8000"]
